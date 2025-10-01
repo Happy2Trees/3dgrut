@@ -254,8 +254,74 @@ class Trainer3DGRUT:
                     model.init_from_colmap(conf.path, observer_points)
                 case "point_cloud":
                     try:
-                        ply_path = os.path.join(conf.path, "point_cloud.ply")
-                        model.init_from_pretrained_point_cloud(ply_path)
+                        # Prefer an explicit path if provided, otherwise fall back to common filenames
+                        candidate_paths = []
+                        try:
+                            if hasattr(conf.initialization, "path") and conf.initialization.path:
+                                candidate_paths.append(conf.initialization.path)
+                        except Exception:
+                            pass
+
+                        # Default names under the dataset root
+                        candidate_paths.append(os.path.join(conf.path, "point_cloud.ply"))
+                        candidate_paths.append(os.path.join(conf.path, "pcd.ply"))
+
+                        ply_path = next((p for p in candidate_paths if os.path.isfile(p)), None)
+                        if ply_path is None:
+                            raise FileNotFoundError(
+                                f"Point cloud initialization requested but no PLY found. "
+                                f"Searched: {', '.join(candidate_paths)}"
+                            )
+
+                        # Decide how to initialize based on PLY contents
+                        from plyfile import PlyData  # local import to avoid hard dependency at module load time
+
+                        try:
+                            ply = PlyData.read(ply_path)
+                            vert = ply["vertex"]
+                            prop_names = {p.name for p in vert.properties}
+                        except Exception as ex:
+                            logger.warning(f"Failed to parse PLY header, falling back to pretrained format: {ex}")
+                            prop_names = set()
+
+                        pretrained_fields = {"rot_0", "scale_0", "opacity", "f_dc_0"}
+                        has_pretrained_layout = pretrained_fields.issubset(prop_names)
+
+                        if has_pretrained_layout:
+                            logger.info(f"🤸 Initializing from 3DGS-style PLY: {ply_path}")
+                            model.init_from_pretrained_point_cloud(ply_path)
+                        else:
+                            # Raw point cloud (x,y,z[, rgb]) -> initialize with default heuristics
+                            required_xyz = {"x", "y", "z"}
+                            if not required_xyz.issubset(prop_names):
+                                raise FileNotFoundError(
+                                    f"'{ply_path}' does not contain required properties {sorted(list(required_xyz))}"
+                                )
+
+                            import numpy as np
+                            import torch
+
+                            xyz = np.stack((np.asarray(vert["x"]), np.asarray(vert["y"]), np.asarray(vert["z"])) , axis=1).astype(np.float32)
+
+                            # Optional colors (common names: red/green/blue or r/g/b)
+                            colors = None
+                            if {"red", "green", "blue"}.issubset(prop_names):
+                                colors = np.stack((vert["red"], vert["green"], vert["blue"]), axis=1).astype(np.uint8)
+                            elif {"r", "g", "b"}.issubset(prop_names):
+                                colors = np.stack((vert["r"], vert["g"], vert["b"]), axis=1).astype(np.uint8)
+
+                            file_pts = torch.tensor(xyz, dtype=torch.float32, device=self.device)
+                            file_rgb = (
+                                torch.tensor(colors, dtype=torch.uint8, device=self.device) if colors is not None else None
+                            )
+                            observer_points = torch.tensor(
+                                train_dataset.get_observer_points(), dtype=torch.float32, device=self.device
+                            )
+                            use_observer_pts = getattr(conf.initialization, "use_observation_points", True)
+                            logger.info(f"🤸 Initializing from raw point cloud: {ply_path} (colors={colors is not None})")
+                            model.default_initialize_from_points(
+                                file_pts, observer_points, file_rgb, use_observer_pts=use_observer_pts
+                            )
                     except FileNotFoundError as e:
                         logger.error(e)
                         raise e

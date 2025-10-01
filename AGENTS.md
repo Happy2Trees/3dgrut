@@ -10,6 +10,11 @@ Core training code lives in `threedgrut/`, grouped by domain (`model/`, `dataset
 - `python render.py --config-name render/offline.yaml checkpoint=runs/...`: render evaluation sequences from a saved checkpoint.
 - `python playground.py --scene-config configs/apps/colmap_3dgut.yaml`: open the GUI playground for rapid inspection.
 
+## Environment & Runtime Assumptions
+- Primary runtime is a Miniconda environment named `3dgrut`; all Python deps, CUDA toolchains, and third-party builds are installed there.
+- Before running or testing, either `conda activate 3dgrut` or prefix commands with `conda run -n 3dgrut ...` to ensure the correct toolchain is used.
+- Local testing, training, and rendering should be executed within this environment to match CI and avoid mismatched system packages.
+
 ## Coding Style & Naming Conventions
 Use Python 3.11+, four-space indentation, and type hints consistent with existing modules. Prefer descriptive CamelCase for classes (`Trainer3DGRUT`) and snake_case for functions, Hydra keys, and config files (`particle_kernel_max_alpha`). Keep module-level constants uppercase. Follow the existing docstring pattern of concise triple-double-quoted summaries. When touching CUDA or Slang kernels, mirror naming already in `include/3dgrt/kernels` and update accompanying comments sparingly but clearly.
 

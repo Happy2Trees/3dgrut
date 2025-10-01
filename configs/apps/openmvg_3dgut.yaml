@@ -4,10 +4,9 @@
 defaults:
   - /base_gs
   - /dataset: openmvg
-  - /initialization: random
+  - /initialization: point_cloud
   - /render: 3dgut
   - _self_
 
 # overwrite of default parameters
-val_frequency: 999999 # never validate
-
+val_frequency: 3000 # never validate

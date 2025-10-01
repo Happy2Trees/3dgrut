@@ -61,6 +61,15 @@ class OpenMVGDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
         self.ray_jitter = ray_jitter
         self.camera_override_model = camera_override_model
 
+        # Warn if an unsupported override was provided (we only support ERP here)
+        if self.camera_override_model is not None:
+            override = str(self.camera_override_model).lower()
+            if override not in ("equirectangular", "erp"):  # only ERP supported
+                logger.warning(
+                    f"OpenMVGDataset: camera_override_model='{self.camera_override_model}' is not supported; "
+                    "falling back to Equirectangular"
+                )
+
         # Worker-local GPU cache for intrinsics tensors
         self._worker_gpu_cache: Dict[str, dict] = {}
 
@@ -136,13 +145,39 @@ class OpenMVGDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
     def _build_samples_for_split(self) -> None:
         # Build filename->view record mapping
         view_by_filename: Dict[str, dict] = {}
+        view_by_stem: Dict[str, str] = {}
         for v in self._views:
             data = v["value"]["ptr_wrapper"]["data"]
-            view_by_filename[data["filename"]] = data
+            filename = data["filename"]
+            view_by_filename[filename] = data
+            stem = os.path.splitext(os.path.basename(filename))[0]
+            # If multiple entries map to the same stem, last one wins; warn once
+            if stem in view_by_stem and view_by_stem[stem] != filename:
+                logger.warning(
+                    f"Multiple views share stem '{stem}': '{view_by_stem[stem]}' and '{filename}'. Using '{filename}'."
+                )
+            view_by_stem[stem] = filename
 
         # Choose split list
         name_list = self._train_list if self.split == "train" else self._test_list
-        filenames = [name + ".jpg" for name in name_list]
+        # Accept either bare stems or full filenames (with extension) in split files
+        filenames: List[str] = []
+        for name in name_list:
+            if "." in name:  # looks like a filename with extension
+                filenames.append(name)
+            else:
+                # Resolve by stem to the actual filename recorded in views
+                resolved = view_by_stem.get(name)
+                if resolved is None:
+                    # Try common extensions as a fallback
+                    candidates = [f"{name}.jpg", f"{name}.png", f"{name}.jpeg", f"{name}.JPG", f"{name}.PNG"]
+                    resolved = next((c for c in candidates if c in view_by_filename), None)
+                if resolved is None:
+                    logger.warning(
+                        f"Split item '{name}' not found in views; skipping."
+                    )
+                    continue
+                filenames.append(resolved)
 
         # Build aligned lists of image paths, poses, and indices
         poses: List[np.ndarray] = []
@@ -165,7 +200,16 @@ class OpenMVGDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
 
             poses.append(C2W)
             cam_centers.append(C2W[:3, 3].copy())
-            image_paths.append(os.path.join(self._images_dir(), fn))
+
+            # Resolve image path robustly: if the JSON filename already contains a
+            # subfolder (e.g., 'images/xxx.jpg' or 'some/subdir/xxx.jpg'), interpret it
+            # as relative to scene root; otherwise, assume it's under images/.
+            fn_norm = fn.replace("\\", "/")
+            if "/" in fn_norm:
+                image_path = os.path.join(self.path, fn_norm)
+            else:
+                image_path = os.path.join(self._images_dir(), fn)
+            image_paths.append(image_path)
 
         assert (
             len(image_paths) > 0
@@ -248,8 +292,10 @@ class OpenMVGDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
         return self.n_frames
 
     def __getitem__(self, idx: int) -> dict:
-        # Load image as uint8
-        image_data = np.asarray(Image.open(self.image_paths[idx]))
+        # Load image as uint8 RGB to ensure 3 channels
+        with Image.open(self.image_paths[idx]) as img:
+            img = img.convert("RGB")
+            image_data = np.asarray(img)
         assert image_data.dtype == np.uint8, "Image data must be of type uint8"
 
         output = {

@@ -1,2 +1,5 @@
 method: point_cloud
+# Optional explicit path to a PLY file. If empty, the trainer will look for
+# ${path}/point_cloud.ply and then ${path}/pcd.ply under the dataset root.
+path: ""
 observation_scale_factor: 0.01
