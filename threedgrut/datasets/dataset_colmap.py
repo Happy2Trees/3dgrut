@@ -42,6 +42,7 @@ from .camera_models import (
     ShutterType,
     OpenCVPinholeCameraModelParameters,
     OpenCVFisheyeCameraModelParameters,
+    EquirectangularCameraModelParameters,
     image_points_to_camera_rays,
     pixels_to_image_points,
 )
@@ -56,6 +57,7 @@ class ColmapDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
         downsample_factor=1,
         test_split_interval=8,
         ray_jitter=None,
+        camera_override_model: str | None = None,
     ):
         self.path = path
         self.device = device
@@ -63,6 +65,7 @@ class ColmapDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
         self.downsample_factor = downsample_factor
         self.ray_jitter = ray_jitter
         self.test_split_interval = test_split_interval
+        self.camera_override_model = camera_override_model
 
         # Worker-based GPU cache for multiprocessing compatibility
         self._worker_gpu_cache = {}
@@ -190,6 +193,23 @@ class ColmapDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
                 type(params).__name__,
             )
 
+        def create_equirect_camera(w, h):
+            # Generate ERP rays
+            out_shape = (1, h, w, 3)
+            params = EquirectangularCameraModelParameters(
+                resolution=np.array([w, h], dtype=np.int64),
+                shutter_type=ShutterType.GLOBAL,
+            )
+            from .utils import equirectangular_camera_rays
+
+            rays_o_cam, rays_d_cam = equirectangular_camera_rays(w, h, self.ray_jitter)
+            return (
+                params.to_dict(),
+                torch.tensor(rays_o_cam, dtype=torch.float32).reshape(out_shape),
+                torch.tensor(rays_d_cam, dtype=torch.float32).reshape(out_shape),
+                type(params).__name__,
+            )
+
         cam_id_to_image_name = {
             extr.camera_id: extr.name for extr in self.cam_extrinsics
         }
@@ -224,7 +244,10 @@ class ColmapDataset(Dataset, BoundedMultiViewDataset, DatasetVisualization):
                 abs(full_height / scaling_factor - height) <= 1
             ), f"Scaled image dimension {expected_size} (factor {scaling_factor}x) does not match the actual image dimensions {width}x{height}"
 
-            if intr.model == "SIMPLE_PINHOLE":
+            # ERP override: ignore COLMAP camera model and force ERP
+            if self.camera_override_model is not None and self.camera_override_model.lower() == "equirectangular":
+                self.intrinsics[intr.id] = create_equirect_camera(width, height)
+            elif intr.model == "SIMPLE_PINHOLE":
                 focal_length = intr.params[0] / scaling_factor
                 self.intrinsics[intr.id] = create_pinhole_camera(
                     focal_length, focal_length, width, height

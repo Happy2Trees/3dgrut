@@ -246,3 +246,16 @@ def pixels_to_image_points(pixel_idxs) -> torch.Tensor:
     ), "[CameraModel]: Pixel indices must be integers"
     # Compute the image point coordinates representing the center of each pixel (shift from top left corner to the center)
     return pixel_idxs.to(torch.float32) + 0.5
+
+
+@dataclass
+class EquirectangularCameraModelParameters(
+    CameraModelParameters, dataclasses_json.DataClassJsonMixin
+):
+    """Represents ERP camera model parameters.
+
+    Initial minimal form uses only `resolution` and `shutter_type`.
+    Additional ERP-specific parameters (crop, offsets) can be added later.
+    """
+    # No extra fields for now
+    pass

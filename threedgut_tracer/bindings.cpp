@@ -30,6 +30,10 @@
 #include <3dgut/splatRaster.h>
 
 #include <3dgut/sensors/cameraModels.h>
+// test projection kernel launcher
+#include <3dgut/test_projection.h>
+// Torch CUDA stream API
+#include <ATen/cuda/CUDAContext.h>
 
 threedgut::CameraModelParameters
 fromOpenCVPinholeCameraModelParameters(std::array<uint64_t, 2> _resolution,
@@ -76,6 +80,16 @@ fromOpenCVFisheyeCameraModelParameters(std::array<uint64_t, 2> _resolution,
     return params;
 }
 
+threedgut::CameraModelParameters
+fromEquirectangularCameraModelParameters(std::array<uint64_t, 2> /*_resolution*/,
+                                        threedgut::TSensorModel::ShutterType shutter_type) {
+    threedgut::CameraModelParameters params;
+    params.shutterType = static_cast<threedgut::TSensorModel::ShutterType>(shutter_type);
+    params.modelType   = threedgut::TSensorModel::EquirectangularModel;
+    // No additional parameters for initial ERP support
+    return params;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
     pybind11::class_<SplatRaster>(m, "SplatRaster")
@@ -110,4 +124,42 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("focal_length"),
           py::arg("radial_coeffs"),
           py::arg("max_angle"));
+
+    m.def("fromEquirectangularCameraModelParameters", &fromEquirectangularCameraModelParameters,
+          py::arg("resolution"),
+          py::arg("shutter_type"));
+
+    // Lightweight test entrypoint: project batch of 3D points with given model
+    m.def(
+        "_test_project_points",
+        [](const threedgut::CameraModelParameters& params,
+           std::array<uint64_t, 2> resolution,
+           torch::Tensor positions) {
+            TORCH_CHECK(positions.is_cuda(), "positions must be a CUDA tensor");
+            TORCH_CHECK(positions.dtype() == torch::kFloat32, "positions must be float32");
+            TORCH_CHECK(positions.dim() == 2 && positions.size(1) == 3, "positions must be [N,3]");
+            auto N = static_cast<int>(positions.size(0));
+
+            auto options_f = positions.options().dtype(torch::kFloat32);
+            auto options_b = positions.options().dtype(torch::kUInt8);
+            torch::Tensor projected = torch::empty({N, 2}, options_f);
+            torch::Tensor valids    = torch::empty({N}, options_b);
+
+            // Launch on current stream
+            auto stream = at::cuda::getCurrentCUDAStream();
+
+            project_points_cuda(
+                params,
+                tcnn::ivec2{static_cast<int>(resolution[0]), static_cast<int>(resolution[1])},
+                reinterpret_cast<const tcnn::vec3*>(positions.data_ptr<float>()),
+                reinterpret_cast<tcnn::vec2*>(projected.data_ptr<float>()),
+                reinterpret_cast<uint8_t*>(valids.data_ptr<uint8_t>()),
+                N,
+                stream.stream());
+
+            return py::make_tuple(projected, valids);
+        },
+        py::arg("params"),
+        py::arg("resolution"),
+        py::arg("positions"));
 }

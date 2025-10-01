@@ -35,6 +35,10 @@ struct OpenCVFisheyeProjectionParameters {
     float maxAngle;
 };
 
+struct EquirectangularProjectionParameters {
+    // Intentionally empty for initial support; kept for future extensions
+};
+
 struct CameraModelParameters {
     enum ShutterType {
         RollingTopToBottomShutter,
@@ -47,6 +51,7 @@ struct CameraModelParameters {
     enum ModelType {
         OpenCVPinholeModel,
         OpenCVFisheyeModel,
+        EquirectangularModel,
         EmptyModel,
         Unsupported
     } modelType = EmptyModel;
@@ -54,6 +59,7 @@ struct CameraModelParameters {
     union {
         OpenCVPinholeProjectionParameters ocvPinholeParams;
         OpenCVFisheyeProjectionParameters ocvFisheyeParams;
+        EquirectangularProjectionParameters equirectParams;
     };
 };
 

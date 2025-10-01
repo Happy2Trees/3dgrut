@@ -426,6 +426,13 @@ class Tracer:
             )
             return camera_model_parameters, pose_model.get_sensor_pose()
 
+        elif (K := gpu_batch.intrinsics_EquirectangularCameraModelParameters) is not None:
+            camera_model_parameters = _3dgut_plugin.fromEquirectangularCameraModelParameters(
+                resolution=K["resolution"],
+                shutter_type=SHUTTER_TYPE_MAP[K["shutter_type"]],
+            )
+            return camera_model_parameters, pose_model.get_sensor_pose()
+
         raise ValueError(
             f"Camera intrinsics unavailable or unsupported, input keys are [{', '.join(gpu_batch.keys())}]"
         )

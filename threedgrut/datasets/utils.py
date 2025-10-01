@@ -59,6 +59,48 @@ def pinhole_camera_rays(x, y, f_x, f_y, w, h, ray_jitter=None):
     return ray_origin, ray_lookat / np.linalg.norm(ray_lookat, axis=-1, keepdims=True)
 
 
+def equirectangular_camera_rays(w, h, ray_jitter=None):
+    """
+    Generate ERP camera rays in camera coordinates for an image of size WxH.
+
+    Args:
+        w: image width in pixels
+        h: image height in pixels
+        ray_jitter: optional callable(shape=(N,2)) -> jitter in [0,1)^2 per pixel
+
+    Returns:
+        ray_origin: (N,3) zeros (camera origin)
+        ray_direction: (N,3) normalized camera directions
+    """
+    # Pixel centers
+    u = np.tile(np.arange(w), h).astype(np.float64)
+    v = np.arange(h).repeat(w).astype(np.float64)
+
+    if ray_jitter is not None:
+        jitter = ray_jitter(u.shape).numpy()
+        u = u + jitter[:, 0]
+        v = v + jitter[:, 1]
+    else:
+        u = u + 0.5
+        v = v + 0.5
+
+    # Map to spherical angles
+    phi = 2.0 * math.pi * (u / float(w) - 0.5)  # [-pi, pi]
+    theta = math.pi * (0.5 - v / float(h))      # [-pi/2, pi/2]
+
+    # Directions in "right-down-front" camera coordinates
+    cos_theta = np.cos(theta)
+    dir_x = np.sin(phi) * cos_theta
+    dir_y = np.sin(theta)
+    dir_z = np.cos(phi) * cos_theta
+
+    ray_dir = np.stack((dir_x, dir_y, dir_z), axis=-1)
+    ray_dir = ray_dir / np.linalg.norm(ray_dir, axis=-1, keepdims=True)
+    ray_origin = np.zeros_like(ray_dir)
+
+    return ray_origin.astype(np.float32), ray_dir.astype(np.float32)
+
+
 def camera_to_world_rays(ray_o, ray_d, poses):
     """
     input:

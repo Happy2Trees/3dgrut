@@ -16,6 +16,7 @@
 from .dataset_nerf import NeRFDataset
 from .dataset_colmap import ColmapDataset
 from .dataset_scannetpp import ScannetppDataset
+from .dataset_openmvg import OpenMVGDataset
 
 
 def make(name: str, config, ray_jitter):
@@ -33,18 +34,27 @@ def make(name: str, config, ray_jitter):
                 bg_color=config.model.background.color,
             )
         case "colmap":
+            # Optional ERP override coming from render camera config
+            camera_override_model = None
+            try:
+                camera_override_model = config.render.camera.model
+            except Exception:
+                camera_override_model = None
+
             train_dataset = ColmapDataset(
                 config.path,
                 split="train",
                 downsample_factor=config.dataset.downsample_factor,
                 test_split_interval=config.dataset.test_split_interval,
                 ray_jitter=ray_jitter,
+                camera_override_model=camera_override_model,
             )
             val_dataset = ColmapDataset(
                 config.path,
                 split="val",
                 downsample_factor=config.dataset.downsample_factor,
                 test_split_interval=config.dataset.test_split_interval,
+                camera_override_model=camera_override_model,
             )
         case "scannetpp":
             train_dataset = ScannetppDataset(
@@ -60,9 +70,28 @@ def make(name: str, config, ray_jitter):
                 downsample_factor=config.dataset.downsample_factor,
                 test_split_interval=config.dataset.test_split_interval,
             )
+        case "openmvg":
+            # Optional ERP override from render camera config
+            camera_override_model = None
+            try:
+                camera_override_model = config.render.camera.model
+            except Exception:
+                camera_override_model = None
+
+            train_dataset = OpenMVGDataset(
+                config.path,
+                split="train",
+                ray_jitter=ray_jitter,
+                camera_override_model=camera_override_model,
+            )
+            val_dataset = OpenMVGDataset(
+                config.path,
+                split="val",
+                camera_override_model=camera_override_model,
+            )
         case _:
             raise ValueError(
-                f'Unsupported dataset type: {config.dataset.type}. Choose between: ["colmap", "nerf", "scannetpp"].'
+                f'Unsupported dataset type: {config.dataset.type}. Choose between: ["colmap", "nerf", "scannetpp", "openmvg"].'
             )
 
     return train_dataset, val_dataset
@@ -77,11 +106,18 @@ def make_test(name: str, config):
                 bg_color=config.model.background.color,
             )
         case "colmap":
+            camera_override_model = None
+            try:
+                camera_override_model = config.render.camera.model
+            except Exception:
+                camera_override_model = None
+
             dataset = ColmapDataset(
                 config.path,
                 split="val",
                 downsample_factor=config.dataset.downsample_factor,
                 test_split_interval=config.dataset.test_split_interval,
+                camera_override_model=camera_override_model,
             )
         case "scannetpp":
             dataset = ScannetppDataset(
@@ -90,8 +126,20 @@ def make_test(name: str, config):
                 downsample_factor=config.dataset.downsample_factor,
                 test_split_interval=config.dataset.test_split_interval,
             )
+        case "openmvg":
+            camera_override_model = None
+            try:
+                camera_override_model = config.render.camera.model
+            except Exception:
+                camera_override_model = None
+
+            dataset = OpenMVGDataset(
+                config.path,
+                split="val",
+                camera_override_model=camera_override_model,
+            )
         case _:
             raise ValueError(
-                f'Unsupported dataset type: {config.dataset.type}. Choose between: ["colmap", "nerf", "scannetpp"].'
+                f'Unsupported dataset type: {config.dataset.type}. Choose between: ["colmap", "nerf", "scannetpp", "openmvg"].'
             )
     return dataset

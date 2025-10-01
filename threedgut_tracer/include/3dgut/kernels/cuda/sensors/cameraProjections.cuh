@@ -127,6 +127,43 @@ static inline __device__ bool projectPoint(const OpenCVFisheyeProjectionParamete
     return (theta < sensorParams.maxAngle) && withinResolution(resolution, tolerance, projected);
 }
 
+static inline __device__ bool projectPoint(const EquirectangularProjectionParameters& /*sensorParams*/,
+                                           const tcnn::ivec2& resolution,
+                                           const tcnn::vec3& position,
+                                           float tolerance,
+                                           tcnn::vec2& projected) {
+    // ERP: map direction to equirectangular pixel coordinates
+    // Normalize direction; reject degenerate
+    const float len = tcnn::length(position);
+    if (!(len > 0.0f) || !isfinite(len)) {
+        projected = tcnn::vec2::zero();
+        return false;
+    }
+
+    const tcnn::vec3 d = position / len;
+
+    // Clamp y to [-1, 1] for asin
+    const float y = fminf(fmaxf(d.y, -1.0f), 1.0f);
+
+    // Note: z-forward convention; phi in [-pi, pi]
+    constexpr float kPi    = 3.14159265358979323846f;
+    constexpr float kTwoPi = 6.28318530717958647692f;
+    const float phi        = atan2f(d.x, d.z);
+    const float theta      = asinf(y);
+
+    // Map to pixel space (u rightwards, v downwards)
+    float u = (phi + kPi) / kTwoPi * static_cast<float>(resolution.x);
+    float v = (0.5f - theta / kPi) * static_cast<float>(resolution.y);
+
+    // Clamp to avoid seam/OOB; keep tiny in-bound epsilon
+    const float eps = 1e-4f;
+    u               = fminf(fmaxf(u, 0.0f), static_cast<float>(resolution.x) - eps);
+    v               = fminf(fmaxf(v, 0.0f), static_cast<float>(resolution.y) - eps);
+
+    projected = tcnn::vec2{u, v};
+    return withinResolution(resolution, tolerance, projected);
+}
+
 static inline __device__ bool projectPoint(const TSensorModel& sensorModel,
                                            const tcnn::ivec2& resolution,
                                            const tcnn::vec3& position,
@@ -137,6 +174,8 @@ static inline __device__ bool projectPoint(const TSensorModel& sensorModel,
         return projectPoint(sensorModel.ocvPinholeParams, resolution, position, tolerance, projected);
     case TSensorModel::OpenCVFisheyeModel:
         return projectPoint(sensorModel.ocvFisheyeParams, resolution, position, tolerance, projected);
+    case TSensorModel::EquirectangularModel:
+        return projectPoint(sensorModel.equirectParams, resolution, position, tolerance, projected);
     default:
         projected = tcnn::vec2::zero();
         return false;

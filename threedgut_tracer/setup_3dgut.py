@@ -89,6 +89,7 @@ def setup_3dgut(conf):
         "src/splatRaster.cpp",
         "src/gutRenderer.cu",
         "src/cudaBuffer.cpp",
+        "src/test_projection.cu",
         "bindings.cpp",
     ]
 
