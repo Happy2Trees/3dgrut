@@ -1,0 +1,5 @@
+type: openmvg
+# OpenMVG loader does not use these, but keep for parity
+downsample_factor: 1
+test_split_interval: 0
+
