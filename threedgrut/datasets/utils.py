@@ -64,12 +64,8 @@ def equirectangular_camera_rays(w, h, ray_jitter=None):
     Generate ERP camera rays in camera coordinates for an image of size WxH.
 
     Note on conventions:
-    - This function returns camera-space directions in 3DGRUT's convention
-      of [right, down, front].
-    - The intermediate ERP mapping produces directions in a typical
-      [right, up, front] convention; we convert to [right, down, front]
-      by flipping the Y component at the end to remain consistent with
-      pinhole rays used elsewhere in the codebase.
+    - Returns camera-space directions in the common ERP convention
+      of [right, up, front] without additional axis flips.
 
     Args:
         w: image width in pixels
@@ -104,8 +100,6 @@ def equirectangular_camera_rays(w, h, ray_jitter=None):
 
     ray_dir = np.stack((dir_x, dir_y, dir_z), axis=-1)
     ray_dir = ray_dir / np.linalg.norm(ray_dir, axis=-1, keepdims=True)
-    # Convert to 3DGRUT convention [right, down, front]
-    ray_dir[:, 1] *= -1.0
     ray_origin = np.zeros_like(ray_dir)
 
     return ray_origin.astype(np.float32), ray_dir.astype(np.float32)
